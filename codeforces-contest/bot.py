@@ -1,9 +1,10 @@
 import os
 import random
 import requests
-import discord
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
+
+from discord.ext import commands
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -15,40 +16,28 @@ CODEFORCES_CONTEST_LIST_API = 'http://codeforces.com/api/contest.list'
 KST_OFFSET = 9
 EST_OFFSET = -5
 
-client = discord.Client()
-contest_list_length = 0
+bot = commands.Bot(command_prefix='!')
 
-@client.event
-async def on_ready():
-    guild = discord.utils.get(client.guilds, name=GUILD)
-    print(
-        f'{client.user} is connected to the following guild:\n'
-        f'{guild.name}(id: {guild.id})'
-    )
-
+@bot.command(name='cf', help='Responds with upcoming <count> contest info (default: 3)')
+async def send_contest_list(ctx, count: int = 3):
+    if count <= 0:
+        raise commands.BadArgument
     res = send_codeforces_request()
     status = res['status']
     if status != 'OK':
-        await message.channel.send(f'{status}: 데이터를 불러오지 못했습니다')
+        await ctx.send(f'⚠️ {status}: Data load failed')
         return
 
     contest_list = res['result']
-    contest_list_length = len(contest_list)
+    upcoming_contest_list = list(filter(lambda contest: contest['relativeTimeSeconds'] < 0, contest_list))
+    most_upcoming_contest_list = sorted(upcoming_contest_list, key=lambda contest: contest['startTimeSeconds'])[:count]
+    message_list = list(map(lambda info: create_contest_message(info), most_upcoming_contest_list))
+    await ctx.send('\n\n'.join(message_list))
 
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.content == '!cf':
-        res = send_codeforces_request()
-        status = res['status']
-        if status != 'OK':
-            await message.channel.send(f'{status}: 데이터를 불러오지 못했습니다')
-            return
-
-        contest_list = res['result']
-        await message.channel.send(create_contest_message(contest_list[0]))
+@send_contest_list.error
+async def send_contest_list_error(ctx, error):
+    if isinstance(error, commands.BadArgument):
+        await ctx.send('⚠️ Argument should be a positive integer')
 
 def send_codeforces_request():
     res = requests.get(CODEFORCES_CONTEST_LIST_API)
@@ -69,4 +58,4 @@ def create_contest_message(contest):
         f'{url}'
     )
 
-client.run(TOKEN)
+bot.run(TOKEN)
